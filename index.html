@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Librarium — Modern Reading Universe</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@300;400;500;600;700;800;900&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+
+
+<body>
+
+  <!-- ░░ TOAST ░░ -->
+  <div id="toast-stack" aria-live="polite"></div>
+
+  <!-- ░░ SIDEBAR OVERLAY ░░ -->
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+  <!-- ════════════════════════════════════
+     SIDEBAR
+════════════════════════════════════ -->
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+        </svg>
+      </div>
+      <span class="brand-name">Librarium</span>
+      <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Collapse sidebar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Search mini -->
+    <div class="sidebar-search">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8" />
+        <path d="M21 21l-4.35-4.35" />
+      </svg>
+      <input id="sb-search" type="text" placeholder="Quick search…" autocomplete="off" />
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-group">
+        <span class="nav-group-label">Discover</span>
+        <a class="nav-link active" data-page="dashboard" href="#">
+          <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg></span>
+          <span class="nav-label">Dashboard</span>
+        </a>
+        <a class="nav-link" data-page="authors" href="#">
+          <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg></span>
+          <span class="nav-label">Authors</span>
+        </a>
+        <div class="nav-link nav-expandable" id="nav-cat-toggle">
+          <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <circle cx="5" cy="5" r="2" />
+              <circle cx="19" cy="5" r="2" />
+              <circle cx="5" cy="19" r="2" />
+              <circle cx="19" cy="19" r="2" />
+            </svg></span>
+          <span class="nav-label">Categories</span>
+          <svg class="nav-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2.5">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </div>
+        <div id="cat-submenu" class="nav-submenu">
+          <a class="nav-sub" data-cat="Fiction" href="#">Fiction</a>
+          <a class="nav-sub" data-cat="Sci-Fi" href="#">Science Fiction</a>
+          <a class="nav-sub" data-cat="Mystery" href="#">Mystery & Thriller</a>
+          <a class="nav-sub" data-cat="Biography" href="#">Biography</a>
+          <a class="nav-sub" data-cat="Philosophy" href="#">Philosophy</a>
+          <a class="nav-sub" data-cat="History" href="#">History</a>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <span class="nav-group-label">My Space</span>
+        <a class="nav-link" data-page="my-library" href="#">
+          <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
+              <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
+            </svg></span>
+          <span class="nav-label">My Library</span>
+          <span class="nav-pill" id="lib-count">0</span>
+        </a>
+        <a class="nav-link" data-page="favorites" href="#">
+          <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <path
+                d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
+            </svg></span>
+          <span class="nav-label">Favourites</span>
+          <span class="nav-pill" id="fav-count">0</span>
+        </a>
+        <a class="nav-link" id="nav-cart" data-page="cart" href="#">
+          <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
+            </svg></span>
+          <span class="nav-label">Cart</span>
+          <span class="nav-pill" id="sb-cart-count">0</span>
+        </a>
+      </div>
+
+      <div class="nav-group">
+        <span class="nav-group-label">Account</span>
+        <a class="nav-link" data-page="settings" href="#">
+          <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+            </svg></span>
+          <span class="nav-label">Settings</span>
+        </a>
+      </div>
+    </nav>
+
+    <!-- Reading progress widget -->
+    <div class="sidebar-reading-widget" id="reading-widget">
+      <div class="rw-cover" id="rw-cover"></div>
+      <div class="rw-info">
+        <span class="rw-title" id="rw-title">No book open</span>
+        <div class="rw-bar">
+          <div class="rw-fill" id="rw-fill" style="width:0%"></div>
+        </div>
+        <span class="rw-pct" id="rw-pct">—</span>
+      </div>
+      <button class="rw-continue" id="rw-continue" title="Continue reading">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+      </button>
+    </div>
+
+    <button class="sidebar-logout" id="logout-btn">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+        <polyline points="16 17 21 12 16 7" />
+        <line x1="21" y1="12" x2="9" y2="12" />
+      </svg>
+      <span class="nav-label">Logout</span>
+    </button>
+  </aside>
+
+  <!-- ════════════════════════════════════
+     MAIN
+════════════════════════════════════ -->
+  <div class="main-shell" id="main-shell">
+
+    <!-- TOPBAR -->
+    <header class="topbar" id="topbar">
+      <div class="topbar-l">
+        <button id="menu-btn" class="icon-btn" aria-label="Menu">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+        <div class="topbar-search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <path d="M21 21l-4.35-4.35" />
+          </svg>
+          <input id="top-search" type="text" placeholder="Search books, authors…" autocomplete="off" />
+          <kbd>⌘K</kbd>
+        </div>
+        <div class="search-drop" id="search-drop"></div>
+      </div>
+      <div class="topbar-r">
+        <button class="icon-btn theme-btn" id="theme-toggle" title="Toggle theme">
+          <svg class="sun-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <circle cx="12" cy="12" r="5" />
+            <line x1="12" y1="1" x2="12" y2="3" />
+            <line x1="12" y1="21" x2="12" y2="23" />
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+            <line x1="1" y1="12" x2="3" y2="12" />
+            <line x1="21" y1="12" x2="23" y2="12" />
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+          </svg>
+          <svg class="moon-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+          </svg>
+        </button>
+        <button class="icon-btn notif-btn" id="cart-topbar-btn" title="Cart">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="9" cy="21" r="1" />
+            <circle cx="20" cy="21" r="1" />
+            <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
+          </svg>
+          <span class="notif-dot" id="cart-dot">0</span>
+        </button>
+        <div class="user-chip" id="user-chip">
+          <div class="user-ava" id="user-ava">A</div>
+          <div class="user-meta">
+            <span class="user-name" id="user-name-display">Alex Reed</span>
+            <span class="user-role">Premium Member</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- PAGE CONTAINER -->
+    <main class="page-wrap" id="page-wrap">
+
+      <!-- ══ DASHBOARD PAGE ══ -->
+      <section class="page active" id="page-dashboard">
+        <!-- Hero Carousel -->
+        <div class="hero-carousel" id="hero-carousel">
+          <div class="carousel-track" id="carousel-track"></div>
+          <div class="carousel-dots" id="carousel-dots"></div>
+          <button class="carousel-btn prev" id="hero-prev">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <button class="carousel-btn next" id="hero-next">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Category pills -->
+        <div class="section-wrap">
+          <div class="cat-pills" id="cat-pills">
+            <button class="cat-pill active" data-cat="all">All</button>
+            <button class="cat-pill" data-cat="Fiction">Fiction</button>
+            <button class="cat-pill" data-cat="Sci-Fi">Sci-Fi</button>
+            <button class="cat-pill" data-cat="Mystery">Mystery</button>
+            <button class="cat-pill" data-cat="Biography">Biography</button>
+            <button class="cat-pill" data-cat="Philosophy">Philosophy</button>
+            <button class="cat-pill" data-cat="History">History</button>
+          </div>
+        </div>
+
+        <!-- Trending -->
+        <div class="section-wrap">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">Trending Now</h2>
+              <p class="section-sub">What everyone's reading this week</p>
+            </div>
+            <a class="see-all" href="#" data-cat="all">See all <svg width="13" height="13" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M5 12h14M12 5l7 7-7 7" />
+              </svg></a>
+          </div>
+          <div class="books-row" id="trending-row"></div>
+        </div>
+
+        <!-- Recommended -->
+        <div class="section-wrap">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">Recommended for You</h2>
+              <p class="section-sub">Curated by your reading taste</p>
+            </div>
+            <a class="see-all" href="#">See all <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2.5">
+                <path d="M5 12h14M12 5l7 7-7 7" />
+              </svg></a>
+          </div>
+          <div class="books-row" id="rec-row"></div>
+        </div>
+
+        <!-- New Ebooks -->
+        <div class="section-wrap">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">New Ebooks</h2>
+              <p class="section-sub">Read instantly on any device</p>
+            </div>
+          </div>
+          <div class="books-row" id="ebook-row"></div>
+        </div>
+
+        <!-- Reading Challenge -->
+        <div class="section-wrap">
+          <div class="challenge-card">
+            <div class="ch-left">
+              <span class="ch-tag">2024 Reading Challenge</span>
+              <h2 class="ch-title">You've read <em id="ch-read">7</em> of <em id="ch-goal">24</em> books</h2>
+              <p class="ch-sub">Keep it up! You're <span id="ch-pct">29</span>% of the way to your annual goal.</p>
+              <div class="ch-bar-wrap">
+                <div class="ch-bar">
+                  <div class="ch-fill" id="ch-fill" style="width:29%"></div>
+                </div>
+                <span id="ch-label">7 / 24</span>
+              </div>
+              <div class="ch-actions">
+                <button class="btn-primary" id="ch-inc">+ Mark Book Read</button>
+                <button class="btn-ghost" id="ch-reset">Reset</button>
+              </div>
+            </div>
+            <div class="ch-right" id="ch-books-visual"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ AUTHORS PAGE ══ -->
+      <section class="page" id="page-authors">
+        <div class="page-header">
+          <h1 class="page-title">Authors</h1>
+          <p class="page-desc">Explore the minds behind the words</p>
+        </div>
+        <div class="authors-grid" id="authors-grid"></div>
+      </section>
+
+      <!-- ══ MY LIBRARY PAGE ══ -->
+      <section class="page" id="page-my-library">
+        <div class="page-header">
+          <h1 class="page-title">My Library</h1>
+          <p class="page-desc">Your personal reading collection</p>
+        </div>
+        <div class="tabs-bar">
+          <button class="tab-btn active" data-tab="reading">Reading Now</button>
+          <button class="tab-btn" data-tab="completed">Completed</button>
+          <button class="tab-btn" data-tab="wishlist">Wishlist</button>
+        </div>
+        <div class="tab-panel active" id="tab-reading">
+          <div class="lib-grid" id="reading-grid"></div>
+          <div class="empty-state" id="reading-empty" style="display:none">
+            <div class="es-icon">📖</div>
+            <p>No books in progress yet.</p>
+            <span>Browse the dashboard and start reading!</span>
+          </div>
+        </div>
+        <div class="tab-panel" id="tab-completed">
+          <div class="lib-grid" id="completed-grid"></div>
+          <div class="empty-state" id="completed-empty" style="display:none">
+            <div class="es-icon">🏆</div>
+            <p>No completed books yet.</p>
+          </div>
+        </div>
+        <div class="tab-panel" id="tab-wishlist">
+          <div class="lib-grid" id="wishlist-grid"></div>
+          <div class="empty-state" id="wishlist-empty" style="display:none">
+            <div class="es-icon">💫</div>
+            <p>Your wishlist is empty.</p>
+            <span>Favourite books to add them here.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ FAVOURITES PAGE ══ -->
+      <section class="page" id="page-favorites">
+        <div class="page-header">
+          <h1 class="page-title">Favourites</h1>
+          <p class="page-desc">Books you've hearted</p>
+        </div>
+        <div class="books-grid" id="fav-grid"></div>
+        <div class="empty-state" id="fav-empty" style="display:none">
+          <div class="es-icon">❤️</div>
+          <p>No favourites yet.</p>
+          <span>Click the heart on any book to save it here.</span>
+        </div>
+      </section>
+
+      <!-- ══ SETTINGS PAGE ══ -->
+      <section class="page" id="page-settings">
+        <div class="page-header">
+          <h1 class="page-title">Settings</h1>
+          <p class="page-desc">Manage your profile and preferences</p>
+        </div>
+        <div class="settings-layout">
+          <div class="settings-card">
+            <h3 class="settings-section-title">Profile</h3>
+            <div class="settings-ava-row">
+              <div class="settings-ava" id="settings-ava">A</div>
+              <div>
+                <p class="settings-ava-name" id="settings-ava-name">Alex Reed</p>
+                <span class="settings-ava-role">Premium Member</span>
+              </div>
+            </div>
+            <div class="form-row">
+              <label class="form-label">Display Name</label>
+              <input class="form-input" id="pref-name" type="text" placeholder="Your name" />
+            </div>
+            <div class="form-row">
+              <label class="form-label">Email</label>
+              <input class="form-input" id="pref-email" type="email" placeholder="you@example.com" />
+            </div>
+            <button class="btn-primary" id="save-profile">Save Profile</button>
+          </div>
+
+          <div class="settings-card">
+            <h3 class="settings-section-title">Appearance</h3>
+            <div class="settings-row">
+              <div>
+                <p class="sr-label">Theme</p>
+                <p class="sr-sub">Switch between light and dark mode</p>
+              </div>
+              <div class="toggle-switch">
+                <input type="checkbox" id="theme-check" class="toggle-input" />
+                <label for="theme-check" class="toggle-label"></label>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div>
+                <p class="sr-label">Accent Colour</p>
+                <p class="sr-sub">Choose your primary colour</p>
+              </div>
+              <div class="accent-swatches" id="accent-swatches">
+                <div class="swatch active" data-accent="#0015FF" style="background:#0015FF"></div>
+                <div class="swatch" data-accent="#7C3AED" style="background:#7C3AED"></div>
+                <div class="swatch" data-accent="#059669" style="background:#059669"></div>
+                <div class="swatch" data-accent="#DC2626" style="background:#DC2626"></div>
+                <div class="swatch" data-accent="#D97706" style="background:#D97706"></div>
+                <div class="swatch" data-accent="#0891B2" style="background:#0891B2"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h3 class="settings-section-title">Reader Defaults</h3>
+            <div class="settings-row">
+              <div>
+                <p class="sr-label">Default Font Size</p>
+                <p class="sr-sub">Text size in the ebook reader</p>
+              </div>
+              <div class="font-size-ctrl">
+                <button class="fsc-btn" id="fsc-down">A-</button>
+                <span id="fsc-val">18</span>
+                <button class="fsc-btn" id="fsc-up">A+</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div>
+                <p class="sr-label">Reading Challenge Goal</p>
+                <p class="sr-sub">Books you want to read this year</p>
+              </div>
+              <div class="font-size-ctrl">
+                <button class="fsc-btn" id="goal-down">−</button>
+                <span id="goal-val">24</span>
+                <button class="fsc-btn" id="goal-up">+</button>
+              </div>
+            </div>
+            <button class="btn-primary" id="save-reader">Save Preferences</button>
+          </div>
+
+          <div class="settings-card danger-card">
+            <h3 class="settings-section-title">Data</h3>
+            <div class="settings-row">
+              <div>
+                <p class="sr-label">Clear All Data</p>
+                <p class="sr-sub">Resets cart, favourites, library, and preferences</p>
+              </div>
+              <button class="btn-danger" id="clear-data">Clear Data</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ════════════════════════════════════
+     BOOK DETAIL PANEL
+════════════════════════════════════ -->
+  <div class="panel-scrim" id="panel-scrim"></div>
+  <aside class="detail-panel" id="detail-panel" aria-hidden="true">
+    <button class="panel-x" id="panel-x" aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    </button>
+    <div class="panel-inner">
+      <div class="panel-hero" id="panel-hero">
+        <div class="panel-cover-3d" id="panel-cover-3d"></div>
+        <div class="panel-glow" id="panel-glow"></div>
+      </div>
+      <div class="panel-body">
+        <div class="panel-badges" id="panel-badges"></div>
+        <h2 class="panel-title" id="panel-title"></h2>
+        <p class="panel-author" id="panel-author"></p>
+        <div class="panel-rating" id="panel-rating"></div>
+        <div class="panel-chips" id="panel-chips"></div>
+        <div class="panel-price-row">
+          <span class="panel-price" id="panel-price"></span>
+          <span class="panel-orig" id="panel-orig"></span>
+          <span class="panel-save" id="panel-save"></span>
+        </div>
+        <p class="panel-desc" id="panel-desc"></p>
+        <div class="panel-ctas">
+          <button class="btn-primary w-full" id="p-cart-btn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
+            </svg>
+            Add to Cart
+          </button>
+          <div class="cta-row2">
+            <button class="btn-outline" id="p-fav-btn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path
+                  d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
+              </svg>
+              Favourite
+            </button>
+            <button class="btn-outline" id="p-borrow-btn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
+                <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
+              </svg>
+              Borrow
+            </button>
+            <button class="btn-read" id="p-read-btn" style="display:none">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+              Read Now
+            </button>
+          </div>
+        </div>
+        <!-- Details accordion -->
+        <button class="accordion-btn" id="acc-btn">
+          Book Details
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+        <div class="accordion-body" id="acc-body">
+          <table class="detail-table" id="detail-table"></table>
+        </div>
+        <!-- Similar -->
+        <div class="similar-section">
+          <p class="similar-label">YOU MIGHT ALSO LIKE</p>
+          <div class="similar-row" id="similar-row"></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ════════════════════════════════════
+     CART DRAWER
+════════════════════════════════════ -->
+  <div class="cart-scrim" id="cart-scrim"></div>
+  <aside class="cart-drawer" id="cart-drawer" aria-hidden="true">
+    <div class="cart-hd">
+      <h2 class="cart-hd-title">Cart <span id="cart-count-label"></span></h2>
+      <button class="icon-btn" id="cart-x" aria-label="Close cart">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
+    <div class="cart-body" id="cart-body">
+      <div class="empty-state" id="cart-empty">
+        <div class="es-icon">🛒</div>
+        <p>Your cart is empty</p><span>Add books to get started</span>
+      </div>
+      <div id="cart-list"></div>
+    </div>
+    <div class="cart-ft" id="cart-ft">
+      <div class="cart-summary">
+        <div class="cs-row"><span>Subtotal</span><span id="cart-sub">$0.00</span></div>
+        <div class="cs-row"><span>Shipping</span><span class="free-tag">Free</span></div>
+        <div class="cs-row cs-total"><span>Total</span><span id="cart-total">$0.00</span></div>
+      </div>
+      <button class="btn-primary w-full checkout-btn">Checkout <svg width="14" height="14" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M5 12h14M12 5l7 7-7 7" />
+        </svg></button>
+      <button class="btn-ghost w-full" onclick="closeCart()">Continue Shopping</button>
+    </div>
+  </aside>
+
+  <!-- ════════════════════════════════════
+     EBOOK READER
+════════════════════════════════════ -->
+  <div class="reader-shell" id="reader-shell" aria-hidden="true">
+    <div class="reader-bar">
+      <button class="icon-btn" id="reader-x">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+      <span class="reader-title" id="reader-title">Loading…</span>
+      <div class="reader-controls">
+        <button class="rc-btn" id="rd-font-down" title="Decrease font">A-</button>
+        <span class="rc-val" id="rd-font-val">18px</span>
+        <button class="rc-btn" id="rd-font-up" title="Increase font">A+</button>
+        <button class="rc-btn rc-theme" id="rd-theme" title="Toggle theme">☀</button>
+      </div>
+    </div>
+    <div class="reader-prog-bar">
+      <div class="reader-prog-fill" id="reader-prog"></div>
+    </div>
+    <div class="reader-content" id="reader-content">
+      <h2 class="chapter-title" id="chapter-title"></h2>
+      <div class="chapter-text" id="chapter-text"></div>
+    </div>
+    <div class="reader-nav">
+      <button class="rd-nav-btn" id="rd-prev">← Previous</button>
+      <span class="rd-page-info" id="rd-page-info">Page 1 of 1</span>
+      <button class="rd-nav-btn" id="rd-next">Next →</button>
+    </div>
+  </div>
+  <div id="auth-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Welcome to Librarium</h2>
+                <button class="close-btn" onclick="hideModal('auth-modal')">&times;</button>
+            </div>
+            <form id="login-form">
+                <div class="input-group">
+                    <label>Email Address</label>
+                    <input type="email" id="login-email" placeholder="admin@example.com" required>
+                </div>
+                <div class="input-group">
+                    <label>Password</label>
+                    <input type="password" id="login-password" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="auth-btn">Login / Sign Up</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
+
+  
