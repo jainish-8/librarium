@@ -62,6 +62,7 @@ let STATE = {
   carouselTimer: null,
   challengeGoal: 24,
   challengeRead: 0,
+  cart:          [],
 };
 
 /* ─────────────────────────────────────────────────────────
@@ -99,7 +100,9 @@ const api = {
     return apiFetch(q ? `${path}?${q}` : path);
   },
   post:  (path, body={}) => apiFetch(path, { method:'POST', body: JSON.stringify(body) }),
+  put:   (path, body={}) => apiFetch(path, { method:'PUT', body: JSON.stringify(body) }),
   patch: (path, body={}) => apiFetch(path, { method:'PATCH', body: JSON.stringify(body) }),
+  delete:(path) => apiFetch(path, { method:'DELETE' }),
 };
 
 /* ─────────────────────────────────────────────────────────
@@ -151,7 +154,7 @@ function showSkeletons(containerId, count=5) {
 ───────────────────────────────────────────────────────── */
 let activePage = 'dashboard';
 
-function goTo(pageId) {
+function goTo(pageId, skipLoad = false) {
   $$('.page').forEach(p => p.classList.remove('active'));
   $$('.nav-link').forEach(l => l.classList.remove('active'));
   const page = $(`#page-${pageId}`);
@@ -159,12 +162,20 @@ function goTo(pageId) {
   const link = $(`.nav-link[data-page="${pageId}"]`);
   if (link) link.classList.add('active');
 
+  if (pageId === 'cart') { openCart(); return; }
+
   // Lazy-load each page's content
-  if (pageId === 'authors')    loadAuthorsPage();
-  if (pageId === 'my-library') loadLibraryPage();
-  if (pageId === 'favorites')  loadFavouritesPage();
-  if (pageId === 'settings')   renderSettingsPage();
-  if (pageId === 'cart')       { openCart(); return; }
+  if (!skipLoad) {
+    if (pageId === 'authors')    loadAuthorsPage();
+    if (pageId === 'my-library') loadLibraryPage();
+    if (pageId === 'orders')     loadOrdersPage();
+    if (pageId === 'settings')   renderSettingsPage();
+    if (pageId === 'explore')    loadExplorePage();
+    if (pageId === 'admin-dashboard') loadAdminDashboard();
+    if (pageId === 'admin-inventory') loadAdminInventory();
+    if (pageId === 'admin-users') loadAdminUsers();
+    if (pageId === 'admin-transactions') loadAdminTransactions();
+  }
 
   if (window.innerWidth <= 768) {
     $('#sidebar')?.classList.remove('mobile-open');
@@ -184,6 +195,132 @@ function buildCoverEl(book) {
       <div class="bai-title" style="color:${p.accent}">${shortT(book.title, 22)}</div>
       <div class="bai-author">${(book.author_name||book.author||'').split(' ').pop()}</div>
     </div>`;
+}
+
+// ==== DYNAMIC CATEGORIES ====
+async function loadCategories() {
+  try {
+    const { categories } = await api.get('/books/categories');
+    
+    // Sidebar submenu
+    const submenu = $('#cat-submenu');
+    if (submenu) {
+      submenu.innerHTML = categories.map(c => `<a class="nav-sub" data-cat="${c.name}" href="#">${c.name} <span style="opacity:0.5;font-size:10px">(${c.count})</span></a>`).join('');
+    }
+    
+    // Dashboard pills
+    const pills = $('#cat-pills');
+    if (pills) {
+      pills.innerHTML = `<button class="cat-pill active" data-cat="all">All</button>` + 
+        categories.map(c => `<button class="cat-pill" data-cat="${c.name}">${c.name}</button>`).join('');
+    }
+    
+    // Explore pills
+    const explorePills = $('#explore-cat-pills');
+    if (explorePills) {
+      explorePills.innerHTML = `<button class="cat-pill active" data-cat="all">All</button>` + 
+        categories.map(c => `<button class="cat-pill" data-cat="${c.name}">${c.name}</button>`).join('');
+    }
+    
+    // Wire events for new dynamic nav-sub items
+    $$('.nav-sub').forEach(a => a.addEventListener('click', e => {
+      e.preventDefault(); filterByCategory(a.dataset.cat); goTo('dashboard');
+    }));
+  } catch (err) {
+    console.error('Failed to load categories', err);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────
+   PAGES / ROUTING
+───────────────────────────────────────────────────────── */
+async function loadExplorePage(filter = 'trending', category = 'all') {
+  try {
+    const grid = $('#explore-grid');
+    grid.style.opacity = 0; // fade out for smooth transition
+    
+    // Reset UI in case we came from an Author filter
+    $('#explore-title').textContent = 'Explore Books';
+    $('#explore-cat-pills').style.display = 'flex';
+    $('#explore-sort').style.display = 'block';
+    
+    // Default sorting based on filter
+    let sort = 'borrow_count';
+    if (filter === 'recommended') sort = 'rating';
+    else if (filter === 'new') sort = 'year';
+    else if (filter === 'title') sort = 'title';
+    
+    const params = { sort, limit: 500 };
+    if (category !== 'all') params.category = category;
+    
+    const { books } = await api.get('/books', params);
+    
+    let displayBooks = books;
+    if (filter === 'ebooks') {
+      displayBooks = books.filter(b => b.is_ebook);
+    }
+    
+    // Highlight correct explore pill
+    $$('#explore-cat-pills .cat-pill').forEach(p => {
+      if (p.dataset.cat === category) p.classList.add('active');
+      else p.classList.remove('active');
+    });
+    
+    setTimeout(() => {
+      grid.innerHTML = '';
+      displayBooks.forEach((b, i) => {
+        const card = buildBookCard(b, i * 30);
+        grid.appendChild(card);
+      });
+      grid.style.opacity = 1; // fade in
+    }, 200); // small delay to let DOM clear and fade out
+    
+    // Hook up sorting dropdown
+    const sortSelect = $('#explore-sort');
+    sortSelect.value = sort;
+    sortSelect.onchange = async () => {
+      const newFilter = sortSelect.value === 'rating' ? 'recommended' : sortSelect.value === 'year' ? 'new' : sortSelect.value === 'title' ? 'title' : 'trending';
+      const activeExplorePill = $('#explore-cat-pills .cat-pill.active');
+      const activeExploreCat = activeExplorePill ? activeExplorePill.dataset.cat : 'all';
+      loadExplorePage(newFilter, activeExploreCat);
+    };
+  } catch (err) {
+    console.error(err);
+    toast('Failed to load explore page.', '⚠');
+  }
+}
+
+async function loadDashboard() {
+  try {
+    showSkeletons('trending-row', 6);
+    showSkeletons('rec-row', 6);
+    showSkeletons('ebook-row', 5);
+
+    // Fetch all books from API
+    const { books } = await api.get('/books', { limit: 200 });
+    STATE.allBooks = books;
+
+    // Trending: highest borrow count
+    const trending = [...books].sort((a,b)=>b.borrow_count-a.borrow_count);
+    // Recommended: highest rated
+    const recommended = [...books].sort((a,b)=>b.rating-a.rating);
+    // Ebooks only
+    const ebooks = books.filter(b=>b.is_ebook);
+
+    renderRow('trending-row', trending);
+    renderRow('rec-row', recommended);
+    renderRow('ebook-row', ebooks);
+
+    // Hero carousel from top 4 books
+    buildCarousel(trending.slice(0,4));
+
+    // Challenge from dashboard if logged in
+    if (STATE.user) await loadChallenge();
+
+  } catch (err) {
+    console.error('Dashboard load error:', err);
+    toast('Failed to load books from server.', '⚠', 4000);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -217,14 +354,14 @@ function buildBookCard(book, delay=0) {
       <div class="bc-author">${book.author_name || book.author || ''}</div>
       <div class="bc-bottom">
         <div class="bc-rating"><span class="bc-star">★</span>${book.rating?.toFixed(1)}</div>
-        <span class="bc-price ${available?'':'free'}" style="${available?'':'color:#EF4444'}">
-          ${available ? `${book.available_copies} left` : 'Unavailable'}
+        <span class="bc-price" style="${available?'':'color:#EF4444'}; display:flex; align-items:center; gap:6px;">
+          ${available ? `<span style="font-size:10px; font-weight:normal; color:var(--text-4);">${book.available_copies} left</span> $${(book.price||0).toFixed(2)}` : 'Unavailable'}
         </span>
       </div>
     </div>`;
 
   card.querySelector('.bco-view')?.addEventListener('click', e => { e.stopPropagation(); openPanel(book); });
-  card.querySelector('.bco-cart')?.addEventListener('click', e => { e.stopPropagation(); borrowBook(book); });
+  card.querySelector('.bco-cart')?.addEventListener('click', e => { e.stopPropagation(); addToCart(book, 'BORROW'); });
   card.querySelector('.bco-read')?.addEventListener('click', e => { e.stopPropagation(); openReader(book); });
   card.querySelector('.bc-fav').addEventListener('click', e => { e.stopPropagation(); toggleFav(book, card.querySelector('.bc-fav')); });
   card.addEventListener('click', () => openPanel(book));
@@ -240,42 +377,6 @@ function renderRow(containerId, books, skeletonCount=6) {
     return;
   }
   books.forEach((b, i) => row.appendChild(buildBookCard(b, i * 55)));
-}
-
-/* ─────────────────────────────────────────────────────────
-   DASHBOARD — Load from API
-───────────────────────────────────────────────────────── */
-async function loadDashboard() {
-  try {
-    showSkeletons('trending-row', 6);
-    showSkeletons('rec-row', 6);
-    showSkeletons('ebook-row', 5);
-
-    // Fetch all books from API
-    const { books } = await api.get('/books', { limit: 100 });
-    STATE.allBooks = books;
-
-    // Trending: highest borrow count
-    const trending = [...books].sort((a,b)=>b.borrow_count-a.borrow_count).slice(0,8);
-    // Recommended: highest rated
-    const recommended = [...books].sort((a,b)=>b.rating-a.rating).slice(0,8);
-    // Ebooks only
-    const ebooks = books.filter(b=>b.is_ebook).slice(0,7);
-
-    renderRow('trending-row', trending);
-    renderRow('rec-row', recommended);
-    renderRow('ebook-row', ebooks);
-
-    // Hero carousel from top 4 books
-    buildCarousel(trending.slice(0,4));
-
-    // Challenge from dashboard if logged in
-    if (STATE.user) await loadChallenge();
-
-  } catch (err) {
-    console.error('Dashboard load error:', err);
-    toast('Failed to load books from server.', '⚠', 4000);
-  }
 }
 
 async function loadChallenge() {
@@ -337,7 +438,7 @@ function buildCarousel(heroBooks) {
         <div class="cs-acts">
           <button class="btn-primary cs-view" data-id="${book.id}">Explore Book</button>
           ${book.available_copies > 0
-            ? `<button class="btn-outline" style="background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.2)" data-borrow="${book.id}">Borrow Free</button>`
+            ? `<button class="btn-outline" style="background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.2)" data-borrow="${book.id}">Add to Cart</button>`
             : `<button class="btn-outline" disabled style="opacity:.4">Unavailable</button>`}
         </div>
       </div>
@@ -350,7 +451,7 @@ function buildCarousel(heroBooks) {
       </div>`;
 
     slide.querySelector('.cs-view').addEventListener('click', () => openPanel(book));
-    slide.querySelector('[data-borrow]')?.addEventListener('click', () => borrowBook(book));
+    slide.querySelector('[data-borrow]')?.addEventListener('click', () => addToCart(book, 'BORROW'));
     track.appendChild(slide);
 
     const dot = document.createElement('div');
@@ -407,14 +508,21 @@ function openPanel(book) {
   // Copies info
   const copies = book.available_copies ?? 0;
   const cartBtn = $('#p-cart-btn');
+  const borrowBtn = $('#p-borrow-btn');
+  
   if (copies > 0) {
-    cartBtn.textContent = `Borrow Free (${copies} left)`;
+    cartBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg> Buy for $${(book.price||0).toFixed(2)}`;
     cartBtn.disabled = false;
     cartBtn.style.opacity = '1';
+
+    borrowBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" /><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" /></svg> Borrow Free`;
+    borrowBtn.style.display = 'flex';
   } else {
     cartBtn.textContent = 'Unavailable';
     cartBtn.disabled = true;
     cartBtn.style.opacity = '0.45';
+
+    borrowBtn.style.display = 'none';
   }
 
   // Read btn (ebooks only)
@@ -430,8 +538,18 @@ function openPanel(book) {
     ['Language',  book.language || 'English'],
     ['ISBN',      book.isbn || ''],
     ['Category',  book.category || ''],
-    ['Available', `${copies} / ${book.total_copies || '?'} copies`],
   ].map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+
+  // Chips
+  const chips = $('#panel-chips');
+  if (chips) {
+    chips.innerHTML = `
+      <div class="p-chip" style="background:var(--accent-light);color:var(--accent);border-color:var(--accent);font-weight:700">${copies} Available</div>
+      <div class="p-chip">${book.pages || '?'} Pages</div>
+      <div class="p-chip">${book.year || '2023'}</div>
+      <div class="p-chip">${book.language || 'English'}</div>
+    `;
+  }
 
   // Similar books (same category)
   const simRow = $('#similar-row');
@@ -488,48 +606,149 @@ function toggleFav(book, btnEl) {
   updateCountBadges();
 }
 
-function loadFavouritesPage() {
-  const grid  = $('#fav-grid');
-  const empty = $('#fav-empty');
-  if (!grid) return;
-  const ids = getFavIds();
-  const favBooks = STATE.allBooks.filter(b => ids.includes(b.id));
+function loadOrdersPage() {
+  if (!STATE.user) {
+    $('#orders-borrows-grid').innerHTML = '';
+    $('#orders-purchases-grid').innerHTML = '';
+    toast('Log in to see your orders.', '🔒');
+    return;
+  }
 
-  if (!favBooks.length) { empty.style.display='flex'; grid.innerHTML=''; return; }
-  empty.style.display = 'none';
-  grid.innerHTML = '';
-  grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(162px,1fr));gap:16px;padding:0 32px 32px';
-  favBooks.forEach((b,i) => grid.appendChild(buildBookCard(b, i*50)));
+  api.get('/user/dashboard').then(dash => {
+    STATE.dashboard = dash;
+
+    const bGrid = $('#orders-borrows-grid');
+    const bEmpty = $('#orders-borrows-empty');
+    if (!dash.active_borrows.length) {
+      if(bEmpty) bEmpty.style.display = 'flex';
+      if(bGrid) bGrid.innerHTML = '';
+    } else {
+      if(bEmpty) bEmpty.style.display = 'none';
+      if(bGrid) {
+        bGrid.innerHTML = dash.active_borrows.map(txn => {
+          const book = txn.book || STATE.allBooks.find(b=>b.id===txn.book_id) || {};
+          return buildOrderCard(txn, book, 'borrow');
+        }).join('');
+      }
+    }
+
+    const pGrid = $('#orders-purchases-grid');
+    const pEmpty = $('#orders-purchases-empty');
+    if (!dash.purchases || !dash.purchases.length) {
+      if(pEmpty) pEmpty.style.display = 'flex';
+      if(pGrid) pGrid.innerHTML = '';
+    } else {
+      if(pEmpty) pEmpty.style.display = 'none';
+      if(pGrid) {
+        pGrid.innerHTML = dash.purchases.map(txn => {
+          const book = txn.book || STATE.allBooks.find(b=>b.id===txn.book_id) || {};
+          return buildOrderCard(txn, book, 'buy');
+        }).join('');
+      }
+    }
+  }).catch(err => {
+    toast('Failed to load orders.', '⚠');
+  });
+}
+
+function buildOrderCard(txn, book, type) {
+  const p = pal(book.cover_palette??0);
+  const daysLeft = txn.days_remaining ?? '?';
+  const priceLabel = type === 'buy' ? 'Purchased' : (txn.status === 'overdue' ? `Fine: $${(txn.fine_amount||0).toFixed(2)}` : `${daysLeft} day(s) left`);
+  
+  return `
+    <div class="book-card" onclick="openPanel(STATE.allBooks.find(b=>b.id==='${book.id}'))" style="cursor:pointer">
+      <div class="bc-cover">
+        <div class="bc-art">${buildCoverEl(book)}</div>
+        <span class="bc-type ${type}">${type === 'buy' ? 'Owned' : 'Borrowed'}</span>
+      </div>
+      <div class="bc-info">
+        <div class="bc-title">${book.title||txn.book_title}</div>
+        <div class="bc-author">${book.author_name||''}</div>
+        <div class="bc-bottom">
+          <span style="font-size:12px;font-weight:600;color:${txn.status==='overdue' ? '#EF4444' : 'var(--text-1)'}">${priceLabel}</span>
+          ${type === 'borrow' ? `<button class="btn-outline" style="font-size:11px;padding:4px 8px" onclick="event.stopPropagation(); returnBook('${txn.book_id}')">Return</button>` : ''}
+        </div>
+      </div>
+    </div>`;
 }
 
 /* ─────────────────────────────────────────────────────────
-   BORROW BOOK — calls POST /api/borrow/:id
+   CART ACTIONS
 ───────────────────────────────────────────────────────── */
-async function handleBorrow(bookId) {
-    const user = JSON.parse(localStorage.getItem('librarium_user'));
+function addToCart(book, action) {
+  if (!STATE.user) { toast('Please log in to add items to cart.', '🔒'); showModal('auth-modal'); return; }
+  // Check if already in cart
+  const exists = STATE.cart.find(c => c.id === book.id && c.action === action);
+  if (exists) {
+    toast(`Already in cart for ${action}`, 'ℹ');
+    return;
+  }
+  STATE.cart.push({ ...book, action });
+  toast(`Added "${book.title}" to cart (${action})`, '🛒');
+  updateCountBadges();
+}
+
+function removeFromCart(idx) {
+  STATE.cart.splice(idx, 1);
+  updateCountBadges();
+  openCart();
+}
+
+async function checkoutCart() {
+  if (!STATE.cart.length) return;
+  const btn = $('#checkout-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Processing...'; }
+
+  try {
+    for (const item of STATE.cart) {
+      await api.post('/transaction', { book_id: item.id, action: item.action });
+      // Decrement globally in UI
+      const cached = STATE.allBooks.find(b => b.id === item.id);
+      if (cached) {
+        cached.available_copies = Math.max(0, (cached.available_copies||0) - 1);
+        if (item.action === 'BORROW') cached.borrow_count = (cached.borrow_count||0)+1;
+      }
+    }
+    toast(`Successfully processed ${STATE.cart.length} item(s)!`, '🎉', 4000);
+    STATE.cart = [];
+    closeCart();
+    updateCountBadges();
     
-    if (!user) {
-        showModal('auth-modal'); // If no user in storage, show login
-        return;
+    if (activePage === 'dashboard') await loadDashboard();
+    else if (activePage === 'orders') loadOrdersPage();
+    else if (activePage === 'my-library') await loadLibraryPage();
+    
+  } catch (err) {
+    toast(err.data?.error || 'Checkout failed.', '⚠');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `Checkout <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>`;
     }
+  }
+}
 
-    try {
-        const response = await fetch(`${API_BASE_URL}/borrow`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: user.id, book_id: bookId })
-        });
-
-        const result = await response.json();
-        if (response.status === 401) {
-            showModal('auth-modal');
-        } else if (result.success) {
-            alert("Book Borrowed Successfully!");
-            location.reload(); // Refresh to see updated stock
-        }
-    } catch (err) {
-        console.error("Borrowing failed:", err);
-    }
+/* ─────────────────────────────────────────────────────────
+   BORROW BOOK — legacy helper mostly used in cart now
+───────────────────────────────────────────────────────── */
+async function borrowBook(book) {
+  if (!STATE.user) {
+    showModal('auth-modal');
+    toast('Please log in to borrow books.', '🔒');
+    return;
+  }
+  try {
+    const res = await api.post(`/borrow/${book.id}`);
+    toast(res.message || `Borrowed "${book.title}"`, '✓', 4000);
+    book.available_copies = Math.max(0, (book.available_copies||0)-1);
+    if (activePage === 'dashboard') loadDashboard();
+    else if (activePage === 'my-library') loadLibraryPage();
+    else if (activePage === 'orders') loadOrdersPage();
+    if (STATE.activeBookId === book.id) openPanel(book);
+  } catch (err) {
+    toast(err.data?.error || 'Could not borrow book.', '⚠');
+  }
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -544,6 +763,7 @@ async function returnBook(bookId) {
     if (cached) cached.available_copies = Math.min((cached.available_copies||0)+1, cached.total_copies||1);
 
     if (activePage === 'my-library') loadLibraryPage();
+    else if (activePage === 'orders') loadOrdersPage();
   } catch (err) {
     toast(err.data?.error || 'Could not return this book.', '⚠');
   }
@@ -682,14 +902,35 @@ async function loadAuthorsPage() {
 }
 
 async function filterByAuthor(author) {
-  goTo('dashboard');
+  goTo('explore', true);
+  $('#explore-title').innerHTML = `Books by <span style="color:var(--primary)">${author.name}</span>`;
+  $('#explore-cat-pills').style.display = 'none'; // Hide category pills for author view
+  $('#explore-sort').style.display = 'none'; // Disable sorting for now
+
   try {
-    const { books } = await api.get('/books', { limit: 20 });
-    const filtered = books.filter(b => b.author_id === author.id || (b.author_name||'').toLowerCase() === author.name.toLowerCase());
-    renderRow('trending-row', filtered.length ? filtered : books.slice(0,6));
-    renderRow('rec-row', filtered.length ? filtered : books.slice(0,6));
+    const grid = $('#explore-grid');
+    grid.style.opacity = 0;
+    
+    const res = await api.get(`/authors/${author.id}`);
+    const books = res.books || [];
+    
+    setTimeout(() => {
+      grid.innerHTML = '';
+      if (!books.length) {
+        grid.innerHTML = '<p style="color:var(--text-3); grid-column: 1/-1;">No books available by this author.</p>';
+      } else {
+        books.forEach((b, i) => {
+          const card = buildBookCard(b, i * 30);
+          grid.appendChild(card);
+        });
+      }
+      grid.style.opacity = 1;
+    }, 200);
+    
     toast(`Showing books by ${author.name}`, '📚');
-  } catch { /* fallback to cached */ }
+  } catch { 
+    toast('Failed to load author books', '⚠');
+  }
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -702,8 +943,39 @@ function initSearch() {
 
   async function runSearch(q) {
     if (q.length < 2) { drop.classList.remove('open'); return; }
+    
+    if (document.body.classList.contains('admin-mode-active')) {
+      if (q.toLowerCase().includes('add') || q.toLowerCase().includes('new')) {
+        drop.innerHTML = `
+          <div class="sd-label">Admin Commands</div>
+          <div class="sd-item" onclick="showAdminBookModal(); document.getElementById('search-drop').classList.remove('open');">
+            <div style="background:var(--accent); color:#fff; width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:8px; font-weight:bold; font-size:18px; margin-right:12px;">+</div>
+            <div class="sd-info">
+              <span class="sd-name">Add New Book</span>
+              <span class="sd-sub">Inventory Management</span>
+            </div>
+          </div>
+        `;
+        drop.classList.add('open');
+        return;
+      }
+    }
     try {
       const { books, authors } = await api.get('/search', { q });
+
+      const emptyStateHtml = `
+        <div style="padding: 32px 16px; text-align: center;">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" stroke-width="1.5" style="margin-bottom: 12px; opacity:0.5;">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <line x1="9" y1="9" x2="13" y2="13"></line>
+            <line x1="13" y1="9" x2="9" y2="13"></line>
+          </svg>
+          <div style="font-size:14px; font-weight:600; color:var(--text); margin-bottom:4px;">No results found</div>
+          <div style="font-size:12px; color:var(--text-3); margin-bottom:16px;">We couldn't find anything matching "${q}".</div>
+          <button class="btn-ghost" onclick="document.getElementById('top-search').value=''; document.getElementById('search-drop').classList.remove('open');" style="font-size:12px; padding:6px 12px; border:1px solid var(--border);">Clear Search</button>
+        </div>
+      `;
 
       drop.innerHTML = `<div class="sd-label">Books (${books.length})</div>` +
         (books.length
@@ -717,7 +989,7 @@ function initSearch() {
                 </div>
               </div>`;
             }).join('')
-          : '<div style="padding:12px 16px;font-size:13px;color:var(--text-4)">No books found</div>'
+          : emptyStateHtml
         );
 
       if (authors.length) {
@@ -766,10 +1038,10 @@ async function filterByCategory(cat) {
   showSkeletons('trending-row', 6);
   showSkeletons('rec-row', 6);
   try {
-    const params = cat==='all' ? { sort:'borrow_count', limit:8 } : { category: cat, sort:'borrow_count', limit:8 };
+    const params = cat==='all' ? { sort:'borrow_count', limit:200 } : { category: cat, sort:'borrow_count', limit:200 };
     const { books } = await api.get('/books', params);
-    const byRating = cat==='all' ? [...books].sort((a,b)=>b.rating-a.rating).slice(0,6) : books.slice(0,6);
-    renderRow('trending-row', books.slice(0,8));
+    const byRating = cat==='all' ? [...books].sort((a,b)=>b.rating-a.rating) : [...books];
+    renderRow('trending-row', books);
     renderRow('rec-row', byRating);
   } catch { toast('Filter failed.','⚠'); }
 }
@@ -872,16 +1144,42 @@ async function loadCurrentUser() {
     applyUserToUI(user);
   } catch {
     STATE.user = null;
+    applyUserToUI(null);
   }
 }
 
 function applyUserToUI(user) {
-  if (!user) return;
-  $$('.user-name').forEach(el => el.textContent = user.name||'');
-  $$('#user-ava, #settings-ava').forEach(el => el.textContent = (user.name||'?').charAt(0).toUpperCase());
-  if ($('#user-name-display')) $('#user-name-display').textContent = user.name||'';
+  const userChip = document.getElementById('user-chip');
+  const authBtnTop = document.getElementById('auth-btn-top');
+  const logoutBtn = document.getElementById('logout-btn');
+
+  if (!user) {
+    if (userChip) userChip.style.display = 'none';
+    if (logoutBtn) logoutBtn.style.display = 'none';
+    if (authBtnTop) authBtnTop.style.display = 'block';
+    document.body.classList.remove('admin-mode-active');
+    return;
+  }
+  
+  if (userChip) userChip.style.display = 'flex';
+  if (logoutBtn) logoutBtn.style.display = 'flex';
+  if (authBtnTop) authBtnTop.style.display = 'none';
+
+  document.querySelectorAll('.user-name').forEach(el => el.textContent = user.name||'');
+  document.querySelectorAll('#user-ava, #settings-ava').forEach(el => el.textContent = (user.name||'?').charAt(0).toUpperCase());
+  if (document.getElementById('user-name-display')) document.getElementById('user-name-display').textContent = user.name||'';
   if (user.reading_goal) STATE.challengeGoal = user.reading_goal;
   if (user.books_read)   STATE.challengeRead = user.books_read;
+
+  if (user.role === 'admin') {
+    document.body.classList.add('admin-mode-active');
+    if (activePage !== 'admin-dashboard' && !activePage.startsWith('admin-')) {
+       goTo('admin-dashboard');
+    }
+  } else {
+    document.body.classList.remove('admin-mode-active');
+  }
+
   updateCountBadges();
 }
 
@@ -905,45 +1203,45 @@ function renderSettingsPage() {
 }
 
 /* ─────────────────────────────────────────────────────────
-   CART — borrows from API
+   CART — Uses STATE.cart
 ───────────────────────────────────────────────────────── */
 async function openCart() {
-  if (!STATE.user) { toast('Log in to view your cart/borrows.','🔒'); return; }
-  try {
-    const dash = await api.get('/user/dashboard');
-    const list  = $('#cart-list');
-    const empty = $('#cart-empty');
-    const ft    = $('#cart-ft');
+  if (!STATE.user) { toast('Log in to view your cart.','🔒'); return; }
+  
+  const list  = $('#cart-list');
+  const empty = $('#cart-empty');
+  const ft    = $('#cart-ft');
 
-    if (!dash.active_borrows.length) {
-      empty.style.display='flex'; list.innerHTML=''; ft.style.display='none';
-    } else {
-      empty.style.display='none'; ft.style.display='block';
-      list.innerHTML = dash.active_borrows.map(txn => {
-        const book = txn.book || {};
-        const p = pal(book.cover_palette??0);
-        const daysLeft = txn.days_remaining ?? '?';
-        return `<div class="cart-item">
-          <div class="ci-cover" style="background:${p.bg}">${shortT(book.title||txn.book_title,14)}</div>
-          <div class="ci-info">
-            <div class="ci-title">${book.title||txn.book_title||'Unknown'}</div>
-            <div class="ci-author">${book.author_name||''}</div>
-            <div class="ci-bottom">
-              <span style="font-size:12px;color:${txn.status==='overdue'?'#EF4444':'var(--text-3)'}">
-                ${txn.status==='overdue' ? `⚠ Overdue — Fine: $${(txn.fine_amount||0).toFixed(2)}` : `${daysLeft} day${daysLeft!==1?'s':''} left`}
-              </span>
-              <button class="btn-outline" style="font-size:11px;padding:5px 10px" onclick="returnBook('${txn.book_id}');closeCart()">Return</button>
-            </div>
+  if (!STATE.cart.length) {
+    empty.style.display='flex'; list.innerHTML=''; ft.style.display='none';
+  } else {
+    empty.style.display='none'; ft.style.display='block';
+    
+    let subtotal = 0;
+    list.innerHTML = STATE.cart.map((item, idx) => {
+      const p = pal(item.cover_palette??0);
+      const price = item.action === 'BUY' ? (item.price || 0) : 0;
+      subtotal += price;
+      
+      return `<div class="cart-item" style="display:flex; gap:12px; margin-bottom:16px; align-items:center;">
+        <div class="ci-cover" style="width:40px;height:60px;background:${p.bg};border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:8px;color:#fff;text-align:center;">${shortT(item.title,14)}</div>
+        <div class="ci-info" style="flex:1;">
+          <div class="ci-title" style="font-weight:600;font-size:14px;color:var(--text-1);">${item.title}</div>
+          <div class="ci-author" style="font-size:12px;color:var(--text-3);margin-bottom:4px;">${item.author_name||''}</div>
+          <div class="ci-bottom" style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:12px;font-weight:600;color:var(--text-1)">
+              ${item.action === 'BUY' ? `Buy: $${price.toFixed(2)}` : 'Borrow: Free'}
+            </span>
+            <button class="btn-outline" style="font-size:11px;padding:4px 8px" onclick="removeFromCart(${idx})">Remove</button>
           </div>
-        </div>`;
-      }).join('');
+        </div>
+      </div>`;
+    }).join('');
 
-      const totalFines = dash.total_outstanding_fines;
-      $('#cart-sub')   && ($('#cart-sub').textContent   = `$${totalFines.toFixed(2)}`);
-      $('#cart-total') && ($('#cart-total').textContent = `$${totalFines.toFixed(2)}`);
-      $('#cart-count-label') && ($('#cart-count-label').textContent = `(${dash.active_borrows.length})`);
-    }
-  } catch { toast('Could not load borrows.', '⚠'); }
+    $('#cart-sub')   && ($('#cart-sub').textContent   = `$${subtotal.toFixed(2)}`);
+    $('#cart-total') && ($('#cart-total').textContent = `$${subtotal.toFixed(2)}`);
+    $('#cart-count-label') && ($('#cart-count-label').textContent = `(${STATE.cart.length})`);
+  }
 
   $('#cart-drawer').classList.add('open');
   $('#cart-scrim').classList.add('show');
@@ -962,8 +1260,10 @@ function updateCountBadges() {
   $$('#fav-count').forEach(el => el.textContent = favCount||'');
   if (STATE.dashboard) {
     const activeCount = STATE.dashboard.active_borrows?.length||0;
-    $$('#lib-count, #sb-cart-count, #cart-dot').forEach(el => el.textContent = activeCount||'');
+    $$('#lib-count').forEach(el => el.textContent = activeCount||'');
   }
+  const cartCount = STATE.cart.length;
+  $$('#sb-cart-count, #cart-dot').forEach(el => el.textContent = cartCount||'');
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -974,6 +1274,18 @@ function wireEvents() {
   $$('.nav-link[data-page]').forEach(link =>
     link.addEventListener('click', e => { e.preventDefault(); goTo(link.dataset.page); })
   );
+
+  // See All links
+  $$('.see-all').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      const filter = btn.dataset.filter || 'trending';
+      const activePill = $('#cat-pills .cat-pill.active');
+      const cat = activePill ? activePill.dataset.cat : 'all';
+      goTo('explore', true);
+      loadExplorePage(filter, cat);
+    });
+  });
 
   // Sidebar collapse
   $('#sidebar-toggle')?.addEventListener('click', () => $('#sidebar')?.classList.toggle('collapsed'));
@@ -999,13 +1311,22 @@ function wireEvents() {
     e.preventDefault(); filterByCategory(a.dataset.cat); goTo('dashboard');
   }));
 
-  // Category pills
+  // Dashboard Category pills
   $('#cat-pills')?.addEventListener('click', e => {
     const pill = e.target.closest('.cat-pill');
     if (!pill) return;
-    $$('.cat-pill').forEach(p => p.classList.remove('active'));
+    $$('#cat-pills .cat-pill').forEach(p => p.classList.remove('active'));
     pill.classList.add('active');
     filterByCategory(pill.dataset.cat);
+  });
+
+  // Explore Category pills
+  $('#explore-cat-pills')?.addEventListener('click', e => {
+    const pill = e.target.closest('.cat-pill');
+    if (!pill) return;
+    const sortSelect = $('#explore-sort');
+    const newFilter = sortSelect.value === 'rating' ? 'recommended' : sortSelect.value === 'year' ? 'new' : sortSelect.value === 'title' ? 'title' : 'trending';
+    loadExplorePage(newFilter, pill.dataset.cat);
   });
 
   // Carousel
@@ -1024,7 +1345,7 @@ function wireEvents() {
   $('#panel-scrim')?.addEventListener('click', closePanel);
   $('#p-cart-btn')?.addEventListener('click', () => {
     const book = STATE.allBooks.find(b=>b.id===STATE.activeBookId);
-    if (book) borrowBook(book);
+    if (book) addToCart(book, 'BUY');
   });
   $('#p-fav-btn')?.addEventListener('click', () => {
     const book = STATE.allBooks.find(b=>b.id===STATE.activeBookId);
@@ -1036,7 +1357,7 @@ function wireEvents() {
   });
   $('#p-borrow-btn')?.addEventListener('click', () => {
     const book = STATE.allBooks.find(b=>b.id===STATE.activeBookId);
-    if (book) borrowBook(book);
+    if (book) addToCart(book, 'BORROW');
   });
   $('#acc-btn')?.addEventListener('click', () => {
     $('#acc-btn').classList.toggle('open');
@@ -1048,6 +1369,7 @@ function wireEvents() {
   $('#nav-cart')?.addEventListener('click', e => { e.preventDefault(); openCart(); });
   $('#cart-x')?.addEventListener('click', closeCart);
   $('#cart-scrim')?.addEventListener('click', closeCart);
+  $('#checkout-btn')?.addEventListener('click', checkoutCart);
 
   // Reader
   $('#reader-x')?.addEventListener('click', closeReader);
@@ -1184,8 +1506,9 @@ async function init() {
 
   // Check session
   await loadCurrentUser();
-
-  // Load dashboard data
+  await loadCategories();
+  
+  if (location.hash === '#authors') goTo('authors');
   await loadDashboard();
 
   // Update challenge
@@ -1200,10 +1523,249 @@ document.addEventListener('DOMContentLoaded', init);
 
 document.getElementById('login-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    // Simulate Login (For now, let's auto-log in as Admin for your demo)
-    const userData = { id: "U001", name: "Jainish Khatkar", email: "admin@example.com" };
-    localStorage.setItem('librarium_user', JSON.stringify(userData));
-    hideModal('auth-modal');
-    alert("Welcome back, Jainish!");
-    location.reload();
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    
+    try {
+        const data = await api.post('/auth/login', { email, password });
+        hideModal('auth-modal');
+        toast("Welcome back, " + data.user.name + "!", "✓");
+        // Reload user state and UI without full page reload
+        await loadCurrentUser();
+        await loadDashboard();
+        if (activePage === 'my-library') loadLibraryPage();
+    } catch (err) {
+        toast(err.data?.error || 'Login failed', '⚠');
+    }
 });
+
+document.getElementById('signup-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('signup-name').value;
+    const email = document.getElementById('signup-email').value;
+    const password = document.getElementById('signup-password').value;
+    
+    try {
+        const data = await api.post('/auth/signup', { name, email, password });
+        hideModal('auth-modal');
+        toast("Account created! Welcome, " + data.user.name, "🎉");
+        await loadCurrentUser();
+        await loadDashboard();
+    } catch (err) {
+        toast(err.data?.error || 'Signup failed', '⚠');
+    }
+});
+
+/* ─────────────────────────────────────────────────────────
+   ADMIN PAGES & LOGIC
+───────────────────────────────────────────────────────── */
+async function loadAdminDashboard() {
+  try {
+    const data = await api.get('/admin/dashboard');
+    const m = data.metrics;
+    $('#admin-metric-users').textContent = m.total_users;
+    $('#admin-metric-books').textContent = m.total_books;
+    $('#admin-metric-purchases').textContent = m.total_purchases;
+    $('#admin-metric-revenue').textContent = '$' + (m.total_revenue||0).toFixed(2);
+  } catch(e) { console.error(e); }
+}
+
+async function loadAdminInventory() {
+  try {
+    const tbody = $('#admin-inventory-table tbody');
+    if (tbody) tbody.innerHTML = `<tr class="shimmer-row"><td><div style="height:14px; width:70%; background:var(--surface-3); border-radius:4px;"></div></td><td><div style="height:14px; width:50%; background:var(--surface-3); border-radius:4px;"></div></td><td><div style="height:14px; width:40%; background:var(--surface-3); border-radius:4px;"></div></td><td><div style="height:14px; width:60%; background:var(--surface-3); border-radius:4px;"></div></td><td><div style="height:14px; width:30%; background:var(--surface-3); border-radius:4px;"></div></td></tr>`.repeat(5);
+    const { books } = await api.get('/books', { limit: 1000 });
+    if (tbody) {
+      tbody.innerHTML = books.map(b => `
+        <tr>
+          <td><strong>${b.title}</strong></td>
+          <td>${b.author_name || b.author || 'Unknown'}</td>
+          <td>$${(b.price||0).toFixed(2)}</td>
+          <td>${b.available_copies} / ${b.total_copies}</td>
+          <td style="text-align:right; white-space:nowrap;">
+            <button class="btn-icon" title="Edit Book" onclick="editAdminBook('${b.id}')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+            </button>
+            <button class="btn-icon danger" title="Delete Book" onclick="deleteAdminBook('${b.id}')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+          </td>
+          <button class="btn-icon quick-edit-btn" title="Quick Edit" onclick="editAdminBook('${b.id}')">
+             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="14 2 18 6 7 17 3 17 3 13 14 2"></polygon><line x1="3" y1="22" x2="21" y2="22"></line></svg>
+          </button>
+        </tr>
+      `).join('');
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function loadAdminUsers() {
+  try {
+    const tbody = $('#admin-users-table tbody');
+    if (tbody) tbody.innerHTML = `<tr class="shimmer-row"><td><div style="height:14px; width:70%; background:var(--surface-3); border-radius:4px;"></div></td><td><div style="height:14px; width:50%; background:var(--surface-3); border-radius:4px;"></div></td><td><div style="height:14px; width:40%; background:var(--surface-3); border-radius:4px;"></div></td><td><div style="height:14px; width:60%; background:var(--surface-3); border-radius:4px;"></div></td><td><div style="height:14px; width:30%; background:var(--surface-3); border-radius:4px;"></div></td></tr>`.repeat(5);
+    const data = await api.get('/admin/users');
+    if (tbody) {
+      tbody.innerHTML = data.users.map(u => `
+        <tr>
+          <td><strong>${u.name}</strong></td>
+          <td>${u.email}</td>
+          <td><span class="p-chip ${u.role === 'admin' ? 'p-chip-overdue' : 'p-chip-borrowed'}" style="${u.role === 'admin' ? 'background:rgba(168,85,247,0.15); color:#a855f7; border-color:rgba(168,85,247,0.3)' : ''}; font-size:10px">${u.role}</span></td>
+          <td>${new Date(u.joined_date).toLocaleDateString()}</td>
+          <td style="text-align:right">
+            <button class="btn-icon" title="View Profile" onclick="viewAdminUser('${u.id}')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    }
+  } catch(e) { console.error(e); }
+}
+
+window.viewAdminUser = async function(id) {
+  try {
+    const data = await api.get('/admin/users/' + id);
+    const u = data.user;
+    const txns = data.transactions;
+    
+    $('#au-name').textContent = u.name;
+    $('#au-email').textContent = u.email;
+    $('#au-role').textContent = (u.role||'').toUpperCase();
+    $('#au-avatar').textContent = (u.name || '?').charAt(0).toUpperCase();
+    $('#au-joined').textContent = 'Joined ' + new Date(u.joined_date).toLocaleDateString();
+    
+    const tbody = $('#au-txn-table tbody');
+    tbody.innerHTML = txns.map(t => {
+      const typeStr = (t.action || (t.status==='bought'?'BUY':'BORROW')).toUpperCase();
+      const statusClass = t.status === 'bought' ? 'p-chip-bought' : 
+                          t.status === 'borrowed' ? 'p-chip-borrowed' : 
+                          t.status === 'returned' ? 'p-chip-returned' : 'p-chip-overdue';
+                          
+      return `
+        <tr>
+          <td>${new Date(t.borrow_date || t.purchase_date || t.transaction_date || Date.now()).toLocaleDateString()}</td>
+          <td><strong>${shortT(t.book_title, 30)}</strong></td>
+          <td><span style="font-size:11px;font-weight:700;color:var(--text-4)">${typeStr}</span></td>
+          <td><span class="p-chip ${statusClass}" style="font-size:10px">${t.status.toUpperCase()}</span></td>
+        </tr>
+      `;
+    }).join('');
+    
+    showModal('admin-user-modal');
+  } catch(e) { toast('Error loading user profile', '⚠'); }
+};
+
+async function loadAdminTransactions() {
+  try {
+    const tbody = $('#admin-txn-table tbody');
+    if (tbody) tbody.innerHTML = `<tr class="shimmer-row"><td><div style="height:14px; width:70%; background:var(--surface-3); border-radius:4px;"></div></td><td><div style="height:14px; width:50%; background:var(--surface-3); border-radius:4px;"></div></td><td><div style="height:14px; width:40%; background:var(--surface-3); border-radius:4px;"></div></td><td><div style="height:14px; width:60%; background:var(--surface-3); border-radius:4px;"></div></td><td><div style="height:14px; width:30%; background:var(--surface-3); border-radius:4px;"></div></td></tr>`.repeat(5);
+    const data = await api.get('/admin/transactions');
+    if (tbody) {
+      tbody.innerHTML = data.transactions.map(t => {
+        const typeStr = (t.action || (t.status==='bought'?'BUY':'BORROW')).toUpperCase();
+        const statusClass = t.status === 'bought' ? 'p-chip-bought' : 
+                            t.status === 'borrowed' ? 'p-chip-borrowed' : 
+                            t.status === 'returned' ? 'p-chip-returned' : 'p-chip-overdue';
+        return `
+        <tr>
+          <td>${new Date(t.borrow_date || t.purchase_date || t.transaction_date || Date.now()).toLocaleString()}</td>
+          <td><span style="font-size:11px;color:var(--text-4)">${t.user_id}</span></td>
+          <td><strong>${t.book_title}</strong></td>
+          <td><span style="font-size:11px;font-weight:700;color:var(--text-4)">${typeStr}</span></td>
+          <td><span class="p-chip ${statusClass}" style="font-size:10px">${t.status.toUpperCase()}</span></td>
+        </tr>
+        `;
+      }).join('');
+    }
+  } catch(e) { console.error(e); }
+}
+
+window.showAdminBookModal = function(bookId=null) {
+  const form = $('#admin-book-form');
+  if (form) form.reset();
+  if ($('#ab-id')) $('#ab-id').value = '';
+  if ($('#ab-modal-title')) $('#ab-modal-title').textContent = 'Add New Book';
+  
+  if (bookId) {
+    const book = STATE.allBooks.find(b => b.id === bookId);
+    if (book) {
+      $('#ab-id').value = book.id;
+      $('#ab-title').value = book.title;
+      $('#ab-author').value = book.author_name || book.author || '';
+      $('#ab-price').value = book.price || 0;
+      $('#ab-total-copies').value = book.total_copies || 1;
+      $('#ab-avail-copies').value = book.available_copies || 1;
+      $('#ab-modal-title').textContent = 'Edit Book';
+    }
+  }
+  showModal('admin-book-modal');
+};
+
+window.editAdminBook = function(id) {
+  window.showAdminBookModal(id);
+};
+
+window.deleteAdminBook = async function(id) {
+  if (!confirm('Are you sure you want to delete this book?')) return;
+  try {
+    await api.delete('/admin/books/' + id);
+    toast('Book deleted', '✓');
+    loadAdminInventory();
+  } catch(e) { toast('Error deleting book', '⚠'); }
+};
+
+$('#admin-book-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = $('#ab-id').value;
+  const payload = {
+    title: $('#ab-title').value,
+    author_name: $('#ab-author').value,
+    price: parseFloat($('#ab-price').value),
+    total_copies: parseInt($('#ab-total-copies').value, 10),
+    available_copies: parseInt($('#ab-avail-copies').value, 10)
+  };
+  
+  try {
+    if (id) {
+      await api.put('/admin/books/' + id, payload);
+      toast('Book updated', '✓');
+    } else {
+      await api.post('/admin/books', payload);
+      toast('Book created', '✓');
+    }
+    hideModal('admin-book-modal');
+    loadAdminInventory();
+    
+    // Also reload global state so editing books reflects without refresh
+    const { books } = await api.get('/books', { limit: 500 });
+    STATE.allBooks = books;
+  } catch(err) {
+    toast('Failed to save book', '⚠');
+  }
+});
+
+window.toggleAdminMode = function() {
+  const content = document.querySelector('.auth-modal-content');
+  if (!content) return;
+  
+  const isCurrentlyAdmin = content.classList.contains('admin-mode');
+  if (!isCurrentlyAdmin) {
+    content.classList.add('admin-mode');
+    content.style.background = '#1a1a1a';
+    content.style.color = '#fff';
+    if ($('#modal-title')) {
+      $('#modal-title').textContent = 'Admin Portal Access';
+      $('#modal-title').style.color = '#fff';
+    }
+    if ($('#admin-login-toggle')) $('#admin-login-toggle').textContent = 'Back to Member Login';
+  } else {
+    content.classList.remove('admin-mode');
+    content.style.background = '';
+    content.style.color = '';
+    if ($('#modal-title')) {
+      $('#modal-title').textContent = 'Welcome to Librarium';
+      $('#modal-title').style.color = '';
+    }
+    if ($('#admin-login-toggle')) $('#admin-login-toggle').textContent = 'Admin Access';
+  }
+};
