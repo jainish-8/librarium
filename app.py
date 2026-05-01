@@ -69,9 +69,12 @@ def now_iso() -> str:
 
 
 def calc_fine(due_date_str: str) -> float:
-    """Return fine amount based on overdue days."""
+    """Compare current_date with due_date and calculate a $0.50/day fine automatically."""
+    if not due_date_str:
+        return 0.0
     due = datetime.fromisoformat(due_date_str)
-    delta = datetime.utcnow() - due
+    current_date = datetime.utcnow()
+    delta = current_date - due
     if delta.total_seconds() <= 0:
         return 0.0
     overdue_days = delta.days + (1 if delta.seconds > 0 else 0)
@@ -102,6 +105,16 @@ def login_required(f):
     return decorated
 
 
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        user = get_current_user()
+        if not user or user.get("role") != "admin":
+            return jsonify({"error": "Admin access required"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
 def get_current_user() -> dict | None:
     uid = session.get("user_id")
     if not uid:
@@ -113,6 +126,7 @@ def get_current_user() -> dict | None:
 # ─────────────────────────────────────────────────────────
 # ── AUTH ROUTES ──────────────────────────────────────────
 # ─────────────────────────────────────────────────────────
+@app.route("/api/signup", methods=["POST"])
 @app.route("/api/auth/signup", methods=["POST"])
 def signup():
     data = request.get_json(silent=True) or {}
@@ -152,6 +166,7 @@ def signup():
     return jsonify({"message": "Account created successfully.", "user": safe}), 201
 
 
+@app.route("/api/login", methods=["POST"])
 @app.route("/api/auth/login", methods=["POST"])
 def login():
     data = request.get_json(silent=True) or {}
@@ -304,8 +319,89 @@ def get_author(author_id):
 
 
 # ─────────────────────────────────────────────────────────
-# ── BORROW / RETURN ROUTES ───────────────────────────────
+# ── TRANSACTION / BORROW / RETURN ROUTES ─────────────────
 # ─────────────────────────────────────────────────────────
+@app.route("/api/transaction", methods=["POST"])
+@login_required
+def transaction():
+    """Dual-Transaction engine: handles both 'BORROW' (7-day limit) and 'BUY' (permanent)."""
+    user_id = session["user_id"]
+    data = request.get_json(silent=True) or {}
+    book_id = data.get("book_id")
+    action = data.get("action", "").upper()
+
+    if not book_id or action not in ("BORROW", "BUY"):
+        return jsonify({"error": "Invalid book_id or action. Use 'BORROW' or 'BUY'."}), 400
+
+    books = _read(BOOKS_PATH)
+    book  = next((b for b in books if b["id"] == book_id), None)
+    if not book:
+        return jsonify({"error": "Book not found."}), 404
+
+    # Check availability
+    if book.get("available_copies", 0) <= 0:
+        return jsonify({"error": "No copies currently available."}), 409
+
+    users = _read(USERS_PATH)
+    user  = next((u for u in users if u["id"] == user_id), None)
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    transactions = _read(TRANS_PATH)
+
+    # Check already borrowed or bought
+    already = next((t for t in transactions
+                    if t["user_id"] == user_id
+                    and t["book_id"] == book_id
+                    and t["status"] in ("borrowed", "overdue", "bought")), None)
+    if already:
+        if already["status"] == "bought":
+            return jsonify({"error": "You already own this book."}), 409
+        elif action == "BORROW":
+            return jsonify({"error": "You have already borrowed this book."}), 409
+
+    txn_id = f"txn_{uuid.uuid4().hex[:10]}"
+    
+    if action == "BORROW":
+        due_date = (datetime.utcnow() + timedelta(days=BORROW_DAYS)).isoformat()
+        status = "borrowed"
+    else: # BUY
+        due_date = None
+        status = "bought"
+
+    new_txn = {
+        "id":           txn_id,
+        "user_id":      user_id,
+        "book_id":      book_id,
+        "book_title":   book["title"],
+        "action":       action,
+        "price":        float(book.get("price", 0.0)),
+        "borrow_date":  now_iso() if action == "BORROW" else None,
+        "purchase_date":now_iso() if action == "BUY" else None,
+        "due_date":     due_date,
+        "return_date":  None,
+        "status":       status,
+        "fine_amount":  0.0,
+        "fine_paid":    False,
+        "current_page": 0,
+        "progress_pct": 0.0,
+    }
+    transactions.append(new_txn)
+
+    book["available_copies"] -= 1
+    if action == "BORROW":
+        book["borrow_count"] = book.get("borrow_count", 0) + 1
+
+    user.setdefault("active_borrows", []).append(txn_id)
+
+    # Atomic writes
+    _write(TRANS_PATH, transactions)
+    _write(BOOKS_PATH, books)
+    _write(USERS_PATH, users)
+
+    msg = f"Successfully borrowed '{book['title']}'." if action == "BORROW" else f"Successfully bought '{book['title']}'."
+    return jsonify({"message": msg, "transaction": new_txn}), 200
+
 @app.route("/api/borrow/<book_id>", methods=["POST"])
 @login_required
 def borrow_book(book_id):
@@ -343,6 +439,8 @@ def borrow_book(book_id):
         "user_id":      user_id,
         "book_id":      book_id,
         "book_title":   book["title"],
+        "action":       "BORROW",
+        "price":        float(book.get("price", 0.0)),
         "borrow_date":  now_iso(),
         "due_date":     due_date,
         "return_date":  None,
@@ -470,6 +568,7 @@ def user_dashboard():
     total_outstanding_fines = 0.0
     active_borrows  = []
     history         = []
+    purchased       = []
 
     for txn in user_txns:
         if txn["status"] in ("borrowed", "overdue"):
@@ -487,11 +586,17 @@ def user_dashboard():
                 "days_remaining": max(
                     0,
                     (datetime.fromisoformat(txn["due_date"]) - datetime.utcnow()).days
-                ),
+                ) if txn.get("due_date") else None,
             })
         elif txn["status"] in ("returned",):
             book = next((b for b in books if b["id"] == txn["book_id"]), {})
             history.append({
+                **txn,
+                "book": enrich_book(book, authors) if book else {},
+            })
+        elif txn["status"] == "bought":
+            book = next((b for b in books if b["id"] == txn["book_id"]), {})
+            purchased.append({
                 **txn,
                 "book": enrich_book(book, authors) if book else {},
             })
@@ -506,6 +611,7 @@ def user_dashboard():
         "user":                    safe_user,
         "active_borrows":          active_borrows,
         "history":                 sorted(history, key=lambda t: t.get("return_date", ""), reverse=True),
+        "purchases":               sorted(purchased, key=lambda t: t.get("purchase_date", ""), reverse=True),
         "total_active_borrows":    len(active_borrows),
         "total_outstanding_fines": round(total_outstanding_fines, 2),
         "reading_challenge": {
@@ -633,6 +739,106 @@ def health():
         "users":       len(users),
     }), 200
 
+
+# ─────────────────────────────────────────────────────────
+# ── ADMIN ROUTES ─────────────────────────────────────────
+# ─────────────────────────────────────────────────────────
+@app.route("/api/admin/dashboard", methods=["GET"])
+@admin_required
+def admin_dashboard():
+    books = _read(BOOKS_PATH)
+    users = _read(USERS_PATH)
+    txns  = _read(TRANS_PATH)
+    total_borrows = len([t for t in txns if t["status"] in ("borrowed", "returned", "overdue")])
+    total_purchases = len([t for t in txns if t["status"] == "bought"])
+    total_revenue = sum(t.get("price", 0) for t in txns if t["status"] == "bought") + sum(t.get("fine_amount", 0) for t in txns if t.get("fine_paid"))
+    
+    return jsonify({
+        "metrics": {
+            "total_users": len(users),
+            "total_books": len(books),
+            "total_borrows": total_borrows,
+            "total_purchases": total_purchases,
+            "total_revenue": round(total_revenue, 2),
+        }
+    }), 200
+
+@app.route("/api/admin/users", methods=["GET"])
+@admin_required
+def admin_users():
+    users = _read(USERS_PATH)
+    safe_users = [{k: v for k, v in u.items() if k != "password_hash"} for u in users]
+    return jsonify({"users": safe_users}), 200
+
+@app.route("/api/admin/users/<user_id>", methods=["GET"])
+@admin_required
+def admin_user_detail(user_id):
+    users = _read(USERS_PATH)
+    user = next((u for u in users if u["id"] == user_id), None)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    
+    txns = _read(TRANS_PATH)
+    user_txns = [t for t in txns if t["user_id"] == user_id]
+    user_txns.sort(key=lambda x: x.get("borrow_date") or x.get("purchase_date") or x.get("transaction_date") or "", reverse=True)
+    
+    safe_user = {k: v for k, v in user.items() if k != "password_hash"}
+    return jsonify({"user": safe_user, "transactions": user_txns}), 200
+
+@app.route("/api/admin/transactions", methods=["GET"])
+@admin_required
+def admin_transactions():
+    txns = _read(TRANS_PATH)
+    # Return newest first
+    txns.sort(key=lambda x: x.get("borrow_date") or x.get("purchase_date") or x.get("transaction_date") or "", reverse=True)
+    return jsonify({"transactions": txns}), 200
+
+@app.route("/api/admin/books", methods=["POST"])
+@admin_required
+def admin_add_book():
+    data = request.get_json(silent=True) or {}
+    books = _read(BOOKS_PATH)
+    new_book = {
+        "id": f"book_{uuid.uuid4().hex[:8]}",
+        "title": data.get("title", "New Book"),
+        "author_name": data.get("author_name", "Unknown"),
+        "category": data.get("category", "General"),
+        "price": float(data.get("price", 0)),
+        "total_copies": int(data.get("total_copies", 1)),
+        "available_copies": int(data.get("available_copies", 1)),
+        "cover_palette": int(data.get("cover_palette", 0)),
+        "year": data.get("year", "2023"),
+        "pages": data.get("pages", "300"),
+    }
+    books.append(new_book)
+    _write(BOOKS_PATH, books)
+    return jsonify({"message": "Book added", "book": new_book}), 201
+
+@app.route("/api/admin/books/<book_id>", methods=["PUT", "DELETE"])
+@admin_required
+def admin_manage_book(book_id):
+    books = _read(BOOKS_PATH)
+    idx = next((i for i, b in enumerate(books) if b["id"] == book_id), None)
+    if idx is None:
+        return jsonify({"error": "Book not found"}), 404
+        
+    if request.method == "DELETE":
+        deleted = books.pop(idx)
+        _write(BOOKS_PATH, books)
+        return jsonify({"message": "Book deleted", "book": deleted}), 200
+        
+    if request.method == "PUT":
+        data = request.get_json(silent=True) or {}
+        books[idx].update({
+            "title": data.get("title", books[idx].get("title")),
+            "author_name": data.get("author_name", books[idx].get("author_name")),
+            "category": data.get("category", books[idx].get("category")),
+            "price": float(data.get("price", books[idx].get("price", 0))),
+            "total_copies": int(data.get("total_copies", books[idx].get("total_copies", 1))),
+            "available_copies": int(data.get("available_copies", books[idx].get("available_copies", 1))),
+        })
+        _write(BOOKS_PATH, books)
+        return jsonify({"message": "Book updated", "book": books[idx]}), 200
 
 # ─────────────────────────────────────────────────────────
 # ── SERVE FRONTEND ───────────────────────────────────────
